@@ -11,35 +11,56 @@ import {
 } from '../src/automation-templates.js';
 
 describe('automation templates catalog', () => {
-  it('exposes self-evolution templates for memory, design systems, skills, connectors, and compression', () => {
-    const templates = listAutomationTemplates();
-    const ids = templates.map((template) => template.id);
+ it('exposes self-evolution templates for memory, design systems, skills, connectors, and compression', () => {
+  const templates = listAutomationTemplates();
+  const ids = templates.map((template) => template.id);
 
-    expect(ids).toEqual(expect.arrayContaining([
-      'ingest-source-memory-tree',
-      'extract-design-system',
-      'crystallize-run-into-skill',
-      'connector-digest-design-context',
-      'compress-project-context',
-      'promote-artifact-style',
-    ]));
+  expect(ids).toEqual(expect.arrayContaining([
+   'ingest-source-memory-tree',
+   'extract-design-system',
+   'crystallize-run-into-skill',
+   'connector-digest-design-context',
+   'compress-project-context',
+   'promote-artifact-style',
+  ]));
 
-    expect(templates.some((template) => template.outputSinks.includes('memory'))).toBe(true);
-    expect(templates.some((template) => template.outputSinks.includes('design-system'))).toBe(true);
-    expect(templates.some((template) => template.outputSinks.includes('skill'))).toBe(true);
-    expect(templates.some((template) => template.sourceKinds.includes('connector'))).toBe(true);
-    expect(templates.some((template) => template.tokenCompression === 'aggressive')).toBe(true);
-  });
+  expect(templates.some((template) => template.outputSinks.includes('memory'))).toBe(true);
+  expect(templates.some((template) => template.outputSinks.includes('design-system'))).toBe(true);
+  expect(templates.some((template) => template.outputSinks.includes('skill'))).toBe(true);
+  expect(templates.some((template) => template.sourceKinds.includes('connector'))).toBe(true);
+  expect(templates.some((template) => template.tokenCompression === 'aggressive')).toBe(true);
+ });
 
-  it('fetches one template by id', () => {
-    expect(getAutomationTemplate('extract-design-system')).toMatchObject({
-      id: 'extract-design-system',
+  it('describes promote-artifact-style intent and enriched stage contract', () => {
+    const promote = getAutomationTemplate('promote-artifact-style');
+    if (!promote) throw new Error('promote-artifact-style template missing');
+    expect(promote).toMatchObject({
+      id: 'promote-artifact-style',
       outputSinks: ['design-system', 'memory'],
       reviewPolicy: 'always',
       tokenCompression: 'balanced',
+      sourceKinds: ['artifact'],
+      triggerKinds: ['manual', 'project-event'],
+      tags: ['design-system', 'artifacts'],
     });
-    expect(getAutomationTemplate('missing')).toBeNull();
+    expect(promote.description).toContain('design-system variant');
+    expect(promote.purpose).toContain('reusable project style');
+    const promoteStages = promote.stages;
+    expect(promoteStages).toBeDefined();
+    const stageIds = promoteStages.map((stage) => stage.id);
+    expect(stageIds).toEqual(['classify', 'agent-run', 'propose']);
+    expect(promoteStages.every((stage) => typeof stage.title === 'string' && stage.title.length > 0)).toBe(true);
   });
+
+ it('fetches one template by id', () => {
+  expect(getAutomationTemplate('extract-design-system')).toMatchObject({
+   id: 'extract-design-system',
+   outputSinks: ['design-system', 'memory'],
+   reviewPolicy: 'always',
+   tokenCompression: 'balanced',
+  });
+  expect(getAutomationTemplate('missing')).toBeNull();
+ });
 
   it('includes reviewed user templates after proposal apply', async () => {
     const dataDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'od-automation-templates-'));

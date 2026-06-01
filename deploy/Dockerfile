@@ -1,5 +1,5 @@
-ARG NODE_IMAGE=docker.io/library/node:24-alpine
-ARG RUNTIME_IMAGE=docker.io/library/node:24-alpine
+ARG NODE_IMAGE=docker.io/library/node:24
+ARG RUNTIME_IMAGE=docker.io/library/node:24-slim
 
 FROM ${NODE_IMAGE} AS build
 
@@ -18,7 +18,7 @@ ENV no_proxy=${no_proxy}
 ENV NO_PROXY=${NO_PROXY}
 ENV CI=true
 
-RUN apk add --no-cache python3 make g++
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -82,7 +82,10 @@ FROM ${RUNTIME_IMAGE}
 
 RUN apk add --no-cache tini poppler-utils bash git && \
     addgroup -S -g 1001 open-design && \
-    adduser -S -D -H -u 1001 -G open-design open-design
+    adduser -S -D -H -u 1001 -G open-design open-design && \
+    rm -rf /var/lib/apt/lists/*
+
+# opencode will be mounted from host via docker-compose.yml
 
 WORKDIR /app
 COPY --from=build --chown=open-design:open-design /app/deploy/daemon ./apps/daemon

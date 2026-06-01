@@ -32,15 +32,17 @@ export const BUILT_IN_AUTOMATION_TEMPLATES: AutomationTemplate[] = [
   {
     id: 'extract-design-system',
     title: 'Extract design system',
-    description: 'Draft a DESIGN.md from brand docs, screenshots, repos, connectors, websites, or strong artifacts.',
-    purpose: 'Make the design-system tree evolve from real source material and successful outputs.',
+    description: 'Draft a DESIGN.md from brand docs, screenshots, repos, connectors, websites, or strong artifacts. Uses a semantic extraction pass to surface design signals (color, font, spacing, motion, components) with confidence scores and reviewer prompts, then produces a structured DESIGN.md draft. Multi-source runs reconcile against prior proposals for the same slug.',
+    purpose: 'Make the design-system tree evolve from real source material and successful outputs, with structured extraction evidence and lineage tracking.',
     triggerKinds: ['manual', 'connector', 'project-event'],
     sourceKinds: ['upload', 'url', 'repo', 'connector', 'artifact'],
     stages: [
-      { id: 'ingest', kind: 'ingest', title: 'Capture design source' },
-      { id: 'compress', kind: 'compress', title: 'Compact source context' },
-      { id: 'agent-run', kind: 'agent-run', title: 'Draft DESIGN.md' },
-      { id: 'propose', kind: 'propose', title: 'Create design-system proposal' },
+      { id: 'ingest', kind: 'ingest', title: 'Capture design source', description: 'Fetch or read the design source and store as a content packet with source metadata.' },
+      { id: 'canonicalize', kind: 'canonicalize', title: 'Extract design signals', description: 'Run semantic extraction on the source body to detect colors (hex), font families, typography rules (weight, size, spacing), spacing tokens, border-radius, box-shadow, motion tokens, component vocabulary, and layout posture. Deduplicate by value and annotate each signal with confidence (high/medium/low) and source context.' },
+      { id: 'classify', kind: 'classify', title: 'Reconcile against design-system history', description: 'Check whether an applied proposal already exists for the target design-system slug. If a prior proposal is found, annotate the new draft with a supersede directive and link the prior proposal ID so reviewers can diff across evolutions.' },
+      { id: 'compress', kind: 'compress', title: 'Compact source context', description: 'Apply token compression to the proposal preview body (balanced by default) while preserving the original packet. The structured signals are included in compacted form so reviewers have evidence without the full source.' },
+      { id: 'agent-run', kind: 'agent-run', title: 'Draft DESIGN.md', description: 'Generate a DESIGN.md proposal with YAML frontmatter, Extracted Signals table (kind / value / confidence / occurrences), preliminary CSS token blocks for colors, fonts, spacing, reviewer prompts for gaps, and a reconciliation section when superseding a prior proposal.' },
+      { id: 'propose', kind: 'propose', title: 'Create design-system proposal', description: 'Persist the DESIGN.md proposal with lineage metadata: sourcePacketIds, slug, extractedSignalsCount, signalKinds, and optional priorProposalId so future runs can chain.' },
     ],
     outputSinks: ['design-system', 'memory'],
     reviewPolicy: 'always',
@@ -129,48 +131,12 @@ export function getAutomationTemplate(id: string): AutomationTemplate | null {
 const STORE_DIR = 'automation-templates';
 const STORE_FILE = 'templates.json';
 const SAFE_ID = /^[a-z0-9][a-z0-9._-]{1,95}$/;
-const TRIGGER_KINDS = new Set<AutomationTriggerKind>([
-  'manual',
-  'schedule',
-  'connector',
-  'project-event',
-]);
-const SOURCE_KINDS = new Set<AutomationSourceKind>([
-  'upload',
-  'url',
-  'repo',
-  'connector',
-  'artifact',
-  'chat',
-]);
-const STAGE_KINDS = new Set<AutomationTemplateStageKind>([
-  'ingest',
-  'canonicalize',
-  'redact',
-  'compress',
-  'classify',
-  'propose',
-  'agent-run',
-  'apply',
-  'notify',
-]);
-const OUTPUT_SINKS = new Set<AutomationOutputSink>([
-  'memory',
-  'skill',
-  'design-system',
-  'automation-template',
-  'artifact',
-]);
-const REVIEW_POLICIES = new Set<AutomationReviewPolicy>([
-  'always',
-  'trusted-source',
-  'auto-apply',
-]);
-const COMPRESSION_MODES = new Set<AutomationTokenCompressionMode>([
-  'off',
-  'balanced',
-  'aggressive',
-]);
+const TRIGGER_KINDS = new Set<AutomationTriggerKind>(['manual', 'schedule', 'connector', 'project-event']);
+const SOURCE_KINDS = new Set<AutomationSourceKind>(['upload', 'url', 'repo', 'connector', 'artifact', 'chat']);
+const STAGE_KINDS = new Set<AutomationTemplateStageKind>(['ingest', 'canonicalize', 'redact', 'compress', 'classify', 'propose', 'agent-run', 'apply', 'notify']);
+const OUTPUT_SINKS = new Set<AutomationOutputSink>(['memory', 'skill', 'design-system', 'automation-template', 'artifact']);
+const REVIEW_POLICIES = new Set<AutomationReviewPolicy>(['always', 'trusted-source', 'auto-apply']);
+const COMPRESSION_MODES = new Set<AutomationTokenCompressionMode>(['off', 'balanced', 'aggressive']);
 
 function storePath(dataDir: string): string {
   return path.join(dataDir, STORE_DIR, STORE_FILE);
@@ -218,13 +184,13 @@ function cleanEnumArray<T extends string>(
 
 function cleanReviewPolicy(value: unknown): AutomationReviewPolicy {
   return typeof value === 'string' && REVIEW_POLICIES.has(value as AutomationReviewPolicy)
-    ? value as AutomationReviewPolicy
+    ? (value as AutomationReviewPolicy)
     : 'always';
 }
 
 function cleanCompressionMode(value: unknown): AutomationTokenCompressionMode {
   return typeof value === 'string' && COMPRESSION_MODES.has(value as AutomationTokenCompressionMode)
-    ? value as AutomationTokenCompressionMode
+    ? (value as AutomationTokenCompressionMode)
     : 'balanced';
 }
 
