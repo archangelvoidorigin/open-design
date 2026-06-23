@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Athenian Broadcast — Underground Events & DJs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+/* ─── Design tokens ─── */
+:root {
+  --bg: #0b0a12;
+  --bg-night: #060509;
+  --surface-night: #1a1a2b;
+  --filter-night: #222;
+  --surface: #13121e;
+  --surface-2: #1c1a2c;
+  --fg: #f4efe6;
+  --fg-dim: #b8b0a8;
+  --muted: #7a7286;
+  --border: rgba(255,255,255,0.08);
+  --accent: #e63946; /* Love Generation heart red */
+  --accent-2: #ffb347;
+  --accent-3: #ff4d6d;
+  --gradient-sunset: linear-gradient(160deg, var(--accent) 0%, var(--accent-2) 100%);
+  --gradient-hero: linear-gradient(180deg, rgba(11,10,18,0) 0%, rgba(11,10,18,0.65) 55%, var(--bg) 100%);
+  --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-body: 'Space Grotesk', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+}
+
+/* ─── Reset ─── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+img { display: block; max-width: 100%; }
+a { color: inherit; text-decoration: none; }
+button { font: inherit; border: 0; background: none; color: inherit; cursor: pointer; }
+
+/* ─── Utilities ─── */
+.container { width: min(1280px, 90vw); margin-inline: auto; }
+.section { padding: 110px 0; }
+.section--tight { padding: 70px 0; }
+
+/* ─── Nav ─── */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  padding: 20px 0;
+  backdrop-filter: blur(14px);
+  background: rgba(11,10,18,0.72);
+  border-bottom: 1px solid var(--border);
+  transition: padding 0.3s ease;
+}
+.nav__inner { display: flex; align-items: center; justify-content: space-between; }
+.nav__brand {
+  font-family: var(--font-display);
+  font-weight: 700; font-size: 20px;
+  letter-spacing: -0.02em;
+  display: flex; align-items: center; gap: 8px;
+}
+.nav__brand svg { width: 24px; height: 24px; fill: var(--accent); }
+.nav__links { display: flex; gap: 32px; list-style: none; }
+.nav__links a {
+  font-size: 14px; font-weight: 500; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--fg-dim);
+  transition: color 0.2s;
+}
+.nav__links a:hover { color: var(--accent); }
+.nav__cta {
+  background: var(--accent);
+color: var(--bg);
+  padding: 10px 20px;
+  border-radius: 999px;
+  font-weight: 600; font-size: 14px;
+  transition: transform 0.15s ease, opacity 0.2s;
+}
+.nav__cta:hover { transform: translateY(-1px); opacity: 0.92; }
+
+/* ─── Hero ─── */
+.hero {
+  position: relative;
+  height: 100vh; min-height: 640px;
+  overflow: hidden;
+  display: flex; align-items: flex-end;
+}
+.hero__bg {
+  position: absolute; inset: 0; z-index: 0;
+  background:
+    linear-gradient(180deg, rgba(11,10,18,0.2) 0%, rgba(11,10,18,0.5) 50%, var(--bg) 100%),
+    url('https://images.unsplash.com/photo-1603565816030-6b389eeb23f7?w=1920&q=80') center/cover no-repeat;
+}
+.hero__acropolis {
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 1;
+  height: 55%;
+  background:
+    linear-gradient(0deg, var(--bg) 0%, rgba(11,10,18,0.85) 40%, transparent 100%),
+    url('https://images.unsplash.com/photo-1615971677499-5467cbab01c0?w=1920&q=80') center bottom/cover no-repeat;
+mask-image: linear-gradient(to top, var(--bg) 0%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to top, var(--bg) 0%, transparent 100%);
+}
+.hero__sun {
+  position: absolute; top: 22%; right: 14%; z-index: 1;
+  width: 180px; height: 180px; border-radius: 50%;
+  background: var(--gradient-sunset);
+  filter: blur(60px);
+  opacity: 0.7;
+  animation: pulse 8s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{transform:scale(1);opacity:0.6} 50%{transform:scale(1.15);opacity:0.8} }
+.hero__content { position: relative; z-index: 2; padding: 80px 0 100px; }
+.hero__eyebrow {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.24em;
+  text-transform: uppercase; color: var(--accent-2);
+  margin-bottom: 22px;
+  background: rgba(255,123,66,0.12);
+  border: 1px solid rgba(255,123,66,0.25);
+  padding: 7px 14px; border-radius: 999px;
+}
+.hero__eyebrow::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; animation: blink 2s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.hero__title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(54px,8vw,112px);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+  max-width: 900px;
+  margin-bottom: 24px;
+}
+.hero__title em { font-style: normal; background: var(--gradient-sunset); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero__sub {
+  font-size: clamp(17px,1.4vw,22px);
+  color: var(--fg-dim);
+  max-width: 560px;
+  line-height: 1.55;
+  margin-bottom: 38px;
+}
+.hero__actions { display: flex; gap: 14px; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 14px 26px; border-radius: 999px; font-weight: 600; font-size: 15px; transition: transform 0.15s, opacity 0.2s; }
+.btn:hover { transform: translateY(-2px); }
+.btn--primary { background: var(--accent); color: var(--bg); }
+.btn--ghost { border: 1px solid var(--border); color: var(--fg); background: rgba(255,255,255,0.03); }
+
+/* ─── Section headers ─── */
+.section__header { margin-bottom: 60px; }
+.section__eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent-2); margin-bottom: 14px; }
+.section__title { font-family: var(--font-display); font-weight: 700; font-size: clamp(36px,4vw,62px); line-height: 1.05; letter-spacing: -0.03em; }
+.section__title span { background: var(--gradient-sunset); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* ─── DJ Cards ─── */
+.dj-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap: 22px; }
+.dj-card { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; transition: transform 0.25s ease, border-color 0.25s; cursor: pointer; }
+.dj-card:hover { transform: translateY(-6px); border-color: var(--accent); }
+.dj-card__media { position: relative; aspect-ratio: 4/5; overflow: hidden; background: var(--surface-2); }
+.dj-card__media img { width:100%; height:100%; object-fit:cover; transition:transform 0.5s ease; }
+.dj-card:hover .dj-card__media img { transform:scale(1.06); }
+.dj-card__badge { position:absolute; top:14px; left:14px; background:rgba(11,10,18,0.75); backdrop-filter:blur(8px); color:var(--accent-2); font-size:11px; font-weight:600; letter-spacing:0.14em; text-transform:uppercase; padding:5px 10px; border-radius:999px; border:1px solid rgba(255,179,71,0.3); }
+.dj-card__body { padding:22px; }
+.dj-card__name { font-family:var(--font-display); font-weight:700; font-size:22px; letter-spacing:-0.02em; margin-bottom:6px; }
+.dj-card__genre { font-size:13px; color:var(--accent); font-weight:500; letter-spacing:0.04em; text-transform:uppercase; margin-bottom:10px; }
+.dj-card__next { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+.dj-card:hover .dj-card__next { color:var(--accent-2); }
+
+/* ─── Gallery ─── */
+.gallery-filters { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:40px; }
+.filter-chip { padding:8px 16px; border-radius:999px; font-size:13px; font-weight:500; border:1px solid var(--border); color:var(--fg-dim); background:var(--surface); transition:all 0.2s; }
+.filter-chip:hover, .filter-chip.active { background:var(--bg); color: var(--bg); border-color:var(--border); }
+.gallery { display:grid; grid-template-columns: repeat(3,1fr); gap:14px; }
+.gallery__item { position:relative; border-radius:var(--radius-md); overflow:hidden; aspect-ratio:1; background:var(--surface-2); cursor:pointer; }
+.gallery__item.tall { grid-row:span 2; aspect-ratio:auto; }
+.gallery__item.wide { grid-column:span 2; aspect-ratio:2/1; }
+.gallery__item img { width:100%; height:100%; object-fit:cover; transition:transform 0.5s ease; }
+.gallery__item:hover img { transform:scale(1.05); }
+.gallery__item::after { content:''; position:absolute; inset:0; background:linear-gradient(0deg, rgba(11,10,18,0.55) 0%, transparent 50%); opacity:0; transition:opacity 0.3s; }
+.gallery__item:hover::after { opacity:1; }
+.gallery__caption { position:absolute; bottom:0; left:0; right:0; padding:18px 20px; color: var(--fg); font-size:13px; font-weight:500; z-index:1; transform:translateY(8px); opacity:0; transition:all 0.3s; }
+.gallery__item:hover .gallery__caption { transform:translateY(0); opacity:1; }
+
+/* ─── Night mode overlay ─── */
+body.night { background: var(--bg-night); }
+.night .hero__bg { background: linear-gradient(180deg, rgba(11,10,18,0.8) 0%, var(--bg-night) 100%), url('https://images.unsplash.com/photo-1617745381355-90ca0cabc7d4?w=1920&q=80') center/cover no-repeat; }
+.night .hero__acropolis { filter: brightness(0.7); }
+.night .hero__sun { display:none; }
+.night .nav { background: rgba(6,5,9,0.85); }
+ .night .dj-card { background: var(--surface-night); border-color: var(--border); }
+ .night .filter-chip { background: var(--filter-night); border-color: var(--border); }
+
+/* ─── Scroll reveal ─── */
+.reveal { opacity:0; transform:translateY(30px); transition:opacity 0.7s ease, transform 0.7s ease; }
+.reveal.visible { opacity:1; transform:translateY(0); }
+.reveal-delay-1 { transition-delay:0.1s; }
+.reveal-delay-2 { transition-delay:0.2s; }
+.reveal-delay-3 { transition-delay:0.3s; }
+.reveal-delay-4 { transition-delay:0.4s; }
+
+/* ─── Responsive ─── */
+@media (max-width: 900px) {
+  .gallery { grid-template-columns: repeat(2,1fr); }
+  .gallery__item.tall { grid-row:span 1; }
+}
+</style>
+</head>
+<body>
+<nav class="nav" data-od-id="nav">
+  <div class="container nav__inner">
+    <div class="nav__brand" data-od-id="brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+      Love Generation
+    </div>
+    <ul class="nav__links" data-od-id="nav-links">
+      <li><a href="#djs">DJs</a></li>
+      <li><a href="#gallery">Gallery</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ul>
+    <a href="#contact" class="nav__cta" data-od-id="cta">Book Now</a>
+  </div>
+</nav>
+
+<section class="hero" data-od-id="hero">
+  <div class="hero__bg" data-od-id="hero-bg"></div>
+  <div class="hero__acropolis" data-od-id="hero-acropolis"></div>
+  <div class="hero__sun" data-od-id="hero-sun"></div>
+  <div class="hero__content container" data-od-id="hero-content">
+    <div class="hero__eyebrow" data-od-id="eyebrow">Athens Nightlife</div>
+    <h1 class="hero__title" data-od-id="title"><em>Love Generation</em> Party Series</h1>
+    <p class="hero__sub" data-od-id="subtitle">Sunset beats on the Acropolis, DJ line‑ups that keep the night alive. Join us for unforgettable evenings under the Athenian sky.</p>
+    <div class="hero__actions" data-od-id="actions">
+      <a href="#djs" class="btn btn--primary" data-od-id="cta-primary">Explore DJs</a>
+      <a href="#gallery" class="btn btn--ghost" data-od-id="cta-ghost">View Gallery</a>
+    </div>
+  </div>
+</section>
+
+<section id="djs" class="section" data-od-id="djs-section">
+  <div class="container">
+    <div class="section__header">
+      <div class="section__eyebrow" data-od-id="djs-eyebrow">Featured DJs</div>
+      <h2 class="section__title" data-od-id="djs-title"><span>DJs that set the vibe</span></h2>
+    </div>
+    <div class="dj-grid" data-od-id="dj-grid">
+      <div class="dj-card" data-od-id="dj-1">
+        <div class="dj-card__media"><img src="https://images.unsplash.com/photo-1502685104226-ee32379fefbe?w=400" alt="DJ Luna"></div>
+        <div class="dj-card__badge">Live</div>
+        <div class="dj-card__body">
+          <h3 class="dj-card__name">DJ Luna</h3>
+          <div class="dj-card__genre">Techno</div>
+          <div class="dj-card__next">More <span>→</span></div>
+        </div>
+      </div>
+      <div class="dj-card" data-od-id="dj-2">
+        <div class="dj-card__media"><img src="https://images.unsplash.com/photo-1541602043943-767c0c719ba2?w=400" alt="DJ Atlas"></div>
+        <div class="dj-card__badge">Live</div>
+        <div class="dj-card__body">
+          <h3 class="dj-card__name">DJ Atlas</h3>
+          <div class="dj-card__genre">House</div>
+          <div class="dj-card__next">More <span>→</span></div>
+        </div>
+      </div>
+      <div class="dj-card" data-od-id="dj-3">
+        <div class="dj-card__media"><img src="https://images.unsplash.com/photo-1520691438773-6e1e83fa0d7f?w=400" alt="DJ Echo"></div>
+        <div class="dj-card__badge">Live</div>
+        <div class="dj-card__body">
+          <h3 class="dj-card__name">DJ Echo</h3>
+          <div class="dj-card__genre">Deep House</div>
+          <div class="dj-card__next">More <span>→</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="gallery" class="section" data-od-id="gallery-section">
+  <div class="container">
+    <div class="section__header">
+      <div class="section__eyebrow" data-od-id="gallery-eyebrow">Moments</div>
+      <h2 class="section__title" data-od-id="gallery-title"><span>Past Events</span></h2>
+    </div>
+    <div class="gallery" data-od-id="gallery-grid">
+      <div class="gallery__item" data-od-id="gallery-1"><img src="https://images.unsplash.com/photo-1587232210304-411b2ea390e7?w=600" alt="Event 1"><div class="gallery__caption">Sunset beats 2023</div></div>
+      <div class="gallery__item tall" data-od-id="gallery-2"><img src="https://images.unsplash.com/photo-1580050314124-2985a12a7e97?w=600" alt="Event 2"><div class="gallery__caption">Full moon rave</div></div>
+      <div class="gallery__item" data-od-id="gallery-3"><img src="https://images.unsplash.com/photo-1542466995-4600e6dbe8b4?w=600" alt="Event 3"><div class="gallery__caption">Acropolis night 2022</div></div>
+      <div class="gallery__item" data-od-id="gallery-4"><img src="https://images.unsplash.com/photo-1566612379327-bae96ceb2f87?w=600" alt="Event 4"><div class="gallery__caption">Beach after‑party</div></div>
+      <div class="gallery__item wide" data-od-id="gallery-5"><img src="https://images.unsplash.com/photo-1587243468683-5db30b6ba0e5?w=800" alt="Event 5"><div class="gallery__caption">City skyline lights</div></div>
+      <div class="gallery__item" data-od-id="gallery-6"><img src="https://images.unsplash.com/photo-1586901164935-15123f964718?w=600" alt="Event 6"><div class="gallery__caption">DJ Echo live</div></div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer" data-od-id="footer">
+  <div class="container footer__grid" data-od-id="footer-grid">
+    <div>
+      <h3 class="footer__brand" data-od-id="footer-brand">Love Generation <span>&#x2764;</span></h3>
+      <p>Bringing Athens the best underground vibes since 2020.</p>
+    </div>
+    <div class="footer__col" data-od-id="footer-col-1">
+      <h4>Links</h4>
+      <a href="#hero">Home</a>
+      <a href="#djs">DJs</a>
+      <a href="#gallery">Gallery</a>
+    </div>
+    <div class="footer__col" data-od-id="footer-col-2">
+      <h4>Contact</h4>
+      <a href="mailto:info@lovegen.com">info@lovegen.com</a>
+      <a href="tel:+30210">+30 210 1234567</a>
+    </div>
+  </div>
+  <div class="footer__bottom" data-od-id="footer-bottom">
+    <span>&copy; 2024 Love Generation</span>
+    <span>All rights reserved.</span>
+  </div>
+</footer>
+
+<script>
+// Simple scroll‑reveal
+const revealElems = document.querySelectorAll('.reveal');
+const onScroll = () => {
+  const winBottom = window.scrollY + window.innerHeight;
+  revealElems.forEach(el => {
+    if (el.getBoundingClientRect().top + window.scrollY < winBottom - 100) {
+      el.classList.add('visible');
+    }
+  });
+  // Night‑mode trigger after 300px
+  if (window.scrollY > 300) document.body.classList.add('night');
+  else document.body.classList.remove('night');
+};
+window.addEventListener('scroll', onScroll);
+window.addEventListener('load', onScroll);
+</script>
+</body>
+</html>
