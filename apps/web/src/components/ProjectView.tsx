@@ -248,6 +248,7 @@ import { historyWithApiAttachmentContext } from '../api-attachment-context';
 import { filterImplicitProducedFiles } from '../produced-files';
 import { AvatarMenu } from './AvatarMenu';
 import { Icon } from './Icon';
+import { useWorkspaceTabsDockRef } from './workspaceTabsDock';
 import { localizePluginTitle } from './plugins-home/localization';
 import { DesignSystemPicker } from './DesignSystemPicker';
 import { PresenceBar } from '../collab/PresenceBar';
@@ -694,7 +695,6 @@ const CHAT_PANEL_WIDTH_STORAGE_KEY = 'open-design.project.chatPanelWidth';
 const DEFAULT_CHAT_PANEL_WIDTH = 460;
 const MIN_CHAT_PANEL_WIDTH = 345;
 const MAX_CHAT_PANEL_WIDTH = 720;
-const COMMENT_INSPECTOR_PANEL_WIDTH = 320;
 const MIN_WORKSPACE_PANEL_WIDTH = 400;
 const SPLIT_RESIZE_HANDLE_WIDTH = 8;
 const BYOK_OPENCODE_UNAVAILABLE_MESSAGE =
@@ -2259,9 +2259,11 @@ export function ProjectView({
   // chat pane stays mounted/visible until the `.split` width transition
   // actually finishes — see the sync effect near the ResizeObserver below.
   const [chatSlotHidden, setChatSlotHidden] = useState(workspaceFocused);
+  // Chat-column dock host for the workspace tab strip (workspaceTabsDock.ts);
+  // FileWorkspace registers its own focus-mode host when the chat collapses.
+  const chatTabsDockRef = useWorkspaceTabsDockRef();
   const [commentInspectorActive, setCommentInspectorActive] = useState(false);
   const commentInspectorPortalId = useId();
-  const leftInspectorActive = commentInspectorActive;
   // Per-session override for the BYOK chat's generate_image tool. Seeded once
   // from the New Project → Media model pick (project.metadata.imageModel) — but
   // only when that pick belongs to the active BYOK provider (see
@@ -3548,17 +3550,25 @@ export function ProjectView({
       const artifactToPersist = persistedHtml === art.html ? art : { ...art, html: persistedHtml };
       const baseName = artifactBaseNameFor(art);
       const ext = artifactExtensionFor(art);
-      // Pick a name that doesn't collide with an existing project file.
-      // The first run uses `<base>.<ext>`; subsequent runs append `-2`, `-3`…
-      // so prior artifacts aren't silently overwritten.
       const currentProjectFiles = projectFilesSnapshot ?? projectFilesRef.current;
       const existing = new Set(currentProjectFiles.map((f) => f.name));
       let fileName = `${baseName}${ext}`;
+      // A non-empty identifier is stable artifact identity: when its canonical
+      // filename already exists, update that file in place. Title- and
+      // fallback-derived names still suffix collisions so new artifacts cannot
+      // silently replace unrelated project files.
+      const updatesExplicitlyIdentifiedFile =
+        Boolean(art.identifier?.trim()) && existing.has(fileName);
+      let collisionFileName = fileName;
       let n = 2;
-      while (existing.has(fileName) && savedArtifactRef.current !== fileName) {
-        fileName = `${baseName}-${n}${ext}`;
+      while (
+        existing.has(collisionFileName) &&
+        savedArtifactRef.current !== collisionFileName
+      ) {
+        collisionFileName = `${baseName}-${n}${ext}`;
         n += 1;
       }
+      if (!updatesExplicitlyIdentifiedFile) fileName = collisionFileName;
       if (ext === '.html') {
         const pointerProjectFiles = filterProjectFilesByMinMtime(
           currentProjectFiles,
@@ -3566,7 +3576,7 @@ export function ProjectView({
         );
         const pointerTarget = resolveHtmlPointerArtifactTarget({
           content: artifactToPersist.html,
-          candidateFileName: fileName,
+          candidateFileName: collisionFileName,
           projectFiles: pointerProjectFiles,
         });
         if (pointerTarget) {
@@ -6921,10 +6931,24 @@ export function ProjectView({
       // consuming a replacement run's colliding tool id.
       const pendingWrites = new Map<string, string>();
       const traceTouchedFilePaths = new Set<string>();
+      // Per-write file-list reads are intentionally fire-and-forget so a file
+      // can open while the run is still streaming. Once terminal completion
+      // has selected a turn-level artifact, however, an older Write refresh
+      // must not move focus again.
+      let completionSelectedAutoOpen = false;
       const clearTraceTouchedFilePaths = () => {
         pendingWrites.clear();
         traceTouchedFilePaths.clear();
       };
+      const provenTraceTouchedFiles = () => [...traceTouchedFilePaths]
+        .map((touchedPath, index) => {
+          const name = provenProjectRelativeToolPath(
+            touchedPath,
+            projectDetail.resolvedDir,
+          );
+          return name ? { name, path: name, mtime: index } : null;
+        })
+        .filter((file): file is { name: string; path: string; mtime: number } => file !== null);
 
       const parser = createArtifactParser();
       let parsedArtifact: Artifact | null = null;
@@ -6958,7 +6982,10 @@ export function ProjectView({
       };
       const pushEvent = (ev: AgentEvent) => {
         textBuffer.flush();
-        updateAssistant((prev) => ({ ...prev, events: [...(prev.events ?? []), ev] }));
+        updateAssistant((prev) => ({
+          ...prev,
+          events: appendCoalescedAgentEvent(prev.events ?? [], ev),
+        }));
         if (ev.kind === 'live_artifact') {
           setLiveArtifactEvents((prev) => appendLiveArtifactEventItem(prev, ev));
           void refreshLiveArtifacts().then(() => {
@@ -7007,6 +7034,26 @@ export function ProjectView({
             pendingWrites.delete(ev.toolUseId);
             if (!ev.isError) {
               traceTouchedFilePaths.add(filePath);
+              // Absolute daemon tool paths can prove containment before the
+              // asynchronous file-list refresh completes. Open the best
+              // proven touched artifact immediately so a terminal status and
+              // an external `/files` observer cannot outrun the workspace UI.
+              const immediateFileName = provenProjectRelativeToolPath(
+                filePath,
+                projectDetail.resolvedDir,
+              );
+              const immediateTouchedFiles = provenTraceTouchedFiles();
+              const immediateArtifact = selectAutoOpenProducedArtifact(
+                immediateTouchedFiles,
+                autoOpenArtifactOptions,
+              );
+              if (
+                !completionSelectedAutoOpen
+                && immediateFileName
+                && immediateArtifact === immediateFileName
+              ) {
+                requestOpenFile(immediateFileName);
+              }
               // Refresh first so FileWorkspace's file list (and the tab
               // body) sees the new content before we ask it to focus.
               // Only auto-open if the file actually landed in the project's
@@ -7022,7 +7069,31 @@ export function ProjectView({
                 const decision = decideAutoOpenAfterWrite(filePath, nextFiles, {
                   moduleFileNames,
                 });
-                if (decision.shouldOpen && decision.fileName) {
+                // Several Write refreshes can settle together after the UI
+                // already renders the run as Done but before the stream's
+                // onDone callback arrives. Rank every file touched so far and
+                // let only the best artifact open; otherwise a trailing
+                // support-file write (plan.md) immediately replaces the
+                // generated deliverable (index.html).
+                const bestTouchedArtifact = selectAutoOpenProducedArtifact(
+                  provenTraceTouchedFiles(),
+                  autoOpenArtifactOptions,
+                ) ?? selectAutoOpenTurnArtifact([], nextFiles, {
+                    ...autoOpenArtifactOptions,
+                    turnStartedAt: startedAt,
+                    agentTouchedFileNames: resolveAgentTouchedFileNames(
+                      [...traceTouchedFilePaths],
+                      nextFiles,
+                      project.id,
+                      projectDetail.resolvedDir,
+                    ),
+                  });
+                if (
+                  !completionSelectedAutoOpen
+                  && bestTouchedArtifact === decision.fileName
+                  && decision.shouldOpen
+                  && decision.fileName
+                ) {
                   requestOpenFile(decision.fileName);
                 }
               }).catch(() => {
@@ -7111,6 +7182,7 @@ export function ProjectView({
             return;
           }
           if (ev.kind === 'text') textBuffer.appendTextEvent(ev.text);
+          else if (ev.kind === 'thinking') textBuffer.appendEvent(ev);
           else pushEvent(ev);
         },
         onToolInputDelta: (id: string, name: string, delta: string) => {
@@ -7228,7 +7300,11 @@ export function ProjectView({
           // chips.
           void (async () => {
             try {
-              let nextFiles = await refreshProjectFiles();
+              // A settled shared file-list read from before the daemon exit can
+              // otherwise win the race with the file-change invalidation and
+              // make this turn persist an empty producedFiles list. Completion
+              // attribution needs a fresh post-run snapshot.
+              let nextFiles = await refreshProjectFiles({ fresh: true });
               let artifactPersistenceSucceeded = false;
               let artifactPersistenceError: string | undefined;
               const finalText = streamedText || fullText;
@@ -7258,12 +7334,13 @@ export function ProjectView({
                 if (sameTurnWrite) {
                   artifactPersistenceSucceeded = true;
                   savedArtifactRef.current = sameTurnWrite.name;
+                  completionSelectedAutoOpen = true;
                   requestOpenFile(sameTurnWrite.name);
                 } else {
                   const persistence = await persistArtifact(artifactToPersist, nextFiles, finalText);
                   if (persistence.ok) artifactPersistenceSucceeded = true;
                   else artifactPersistenceError = persistence.error;
-                  nextFiles = await refreshProjectFiles();
+                  nextFiles = await refreshProjectFiles({ fresh: true });
                 }
               }
               const produced = computeProducedFiles(
@@ -7305,7 +7382,7 @@ export function ProjectView({
                 project.id,
                 projectDetail.resolvedDir,
               ) ?? [];
-              const producedArtifactToOpen = selectAutoOpenTurnArtifact(produced, nextFiles, {
+              const turnArtifactToOpen = selectAutoOpenTurnArtifact(produced, nextFiles, {
                 ...autoOpenArtifactOptions,
                 turnStartedAt: startedAt,
                 turnEndedAt: endedAt ?? null,
@@ -7319,7 +7396,22 @@ export function ProjectView({
                   projectDetail.resolvedDir,
                 ),
               });
-              if (producedArtifactToOpen) requestOpenFile(producedArtifactToOpen);
+              const producedArtifactToOpen = selectAutoOpenProducedArtifact(
+                [
+                  ...provenTraceTouchedFiles(),
+                  ...(turnArtifactToOpen
+                    ? [
+                        nextFiles.find((file) => file.name === turnArtifactToOpen)
+                          ?? { name: turnArtifactToOpen, path: turnArtifactToOpen },
+                      ]
+                    : []),
+                ],
+                autoOpenArtifactOptions,
+              );
+              if (producedArtifactToOpen) {
+                completionSelectedAutoOpen = true;
+                requestOpenFile(producedArtifactToOpen);
+              }
               const deliveryCandidate: ChatMessage = {
                 ...latestAssistantMsg,
                 endedAt,
@@ -7570,7 +7662,7 @@ export function ProjectView({
             ...(authoritativeArtifactPaths ?? []),
           ];
           void (async () => {
-            const nextFiles = await refreshProjectFiles();
+            const nextFiles = await refreshProjectFiles({ fresh: true });
             if (authoritativeArtifactPaths === undefined) return;
             const produced = computeProducedFiles(
               beforeFileNames,
@@ -9664,9 +9756,10 @@ export function ProjectView({
     workspacePanelMinWidth === 0
       ? 'minmax(0, 1fr)'
       : `minmax(${workspacePanelMinWidth}px, 1fr)`;
-  const splitLeftPanelWidth = leftInspectorActive
-    ? COMMENT_INSPECTOR_PANEL_WIDTH
-    : chatPanelWidthRef.current;
+  // The comment panel floats over the workspace now, so opening it must not
+  // touch the split at all: the chat column keeps the width the user set.
+  // (It used to take over this column at COMMENT_INSPECTOR_PANEL_WIDTH.)
+  const splitLeftPanelWidth = chatPanelWidthRef.current;
   const chatPanelAriaMinWidth = Math.min(MIN_CHAT_PANEL_WIDTH, chatPanelMaxWidth);
   const projectActionsToastInChatPane =
     projectActionsToast?.scope === 'chat-pane' &&
@@ -10741,7 +10834,6 @@ export function ProjectView({
         ref={splitRef}
         className={[
           projectSplitClassName(workspaceFocused),
-          leftInspectorActive && !workspaceFocused ? 'split-manual-edit' : '',
           resizingChatPanel && !workspaceFocused ? 'is-resizing-chat' : '',
         ].filter(Boolean).join(' ')}
         style={projectSplitStyle(workspaceFocused, splitLeftPanelWidth, workspacePanelTrack)}
@@ -10753,13 +10845,36 @@ export function ProjectView({
           ].filter(Boolean).join(' ')}
           aria-hidden={chatSlotHidden || undefined}
         >
-          {commentInspectorActive ? (
+          {/* Workspace tab strip dock: on the project route the strip leaves
+              the full-width chrome row and sits here, directly above the chat
+              card, level with the workspace column's tab row (which rises to
+              the window top since the chrome row collapses). Unmounting
+              (workspace-focused mode, leaving the route) automatically
+              returns the strip to the chrome row. */}
+          {!workspaceFocused ? (
             <div
-              id={commentInspectorPortalId}
-              className="comment-left-host"
-              aria-label="Comments"
-            />
-          ) : activeConversationId || conversationLoadError || emptyConversationReadOnlySettled ? (
+              className="split-chat-tabs-dock"
+              data-testid="workspace-tabs-dock"
+              ref={chatTabsDockRef}
+            >
+              {/* Collapse-chat control, lifted out of the chat card header to
+                  sit left of the docked tab dropdown (the dropdown portals in
+                  after this button, so flex order stays button → dropdown). */}
+              <button
+                type="button"
+                className="split-chat-collapse od-tooltip"
+                onClick={() => setWorkspaceFocused(true)}
+                title={t('chat.collapsePane')}
+                aria-label={t('chat.collapsePane')}
+                data-tooltip={t('chat.collapsePane')}
+                data-tooltip-placement="bottom"
+                data-testid="chat-collapse-toggle"
+              >
+                <Icon name="panel-left" size={16} />
+              </button>
+            </div>
+          ) : null}
+          {activeConversationId || conversationLoadError || emptyConversationReadOnlySettled ? (
             <ChatPane
               // The conversation id is part of the key so switching conversations
               // resets internal scroll/draft state inside ChatPane and ChatComposer.
@@ -10960,6 +11075,7 @@ export function ProjectView({
               }}
               onBack={onBack}
               onCollapse={() => setWorkspaceFocused(true)}
+              collapseControlLifted={!workspaceFocused}
               backLabel={t('project.backToProjects')}
               composerFooterAccessory={executionControls}
               projectHeader={(
@@ -11007,25 +11123,34 @@ export function ProjectView({
             </div>
           )}
         </div>
+        {/* The comment panel is a floating card over the workspace in EVERY
+            state (per product: 任何状态下评论卡片都在这个位置). It used to dock
+            inside the chat column, which put it in a different place —  and
+            made it invisible in full-screen preview, where that column is
+            hidden. Keep the empty host mounted so FileViewer can resolve its
+            portal before opening; `:empty` hides all chrome and hit testing
+            until the localized comment panel is portaled in. Exactly one
+            element ever carries `commentInspectorPortalId`. */}
+        <div
+          id={commentInspectorPortalId}
+          className="comment-float-host"
+          data-testid="comment-float-host"
+        />
         {!workspaceFocused ? (
-          leftInspectorActive ? (
-            <div className="split-edit-divider" aria-hidden />
-          ) : (
-            <div
-              className="split-resize-handle"
-              role="separator"
-              aria-orientation="vertical"
-              aria-label={chatResizeLabel}
-              aria-valuemin={chatPanelAriaMinWidth}
-              aria-valuemax={chatPanelMaxWidth}
-              aria-valuenow={chatPanelWidth}
-              tabIndex={0}
-              title={chatResizeLabel}
-              onPointerDown={handleChatResizePointerDown}
-              onKeyDown={handleChatResizeKeyDown}
-              onBlur={handleChatResizeBlur}
-            />
-          )
+          <div
+            className="split-resize-handle"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={chatResizeLabel}
+            aria-valuemin={chatPanelAriaMinWidth}
+            aria-valuemax={chatPanelMaxWidth}
+            aria-valuenow={chatPanelWidth}
+            tabIndex={0}
+            title={chatResizeLabel}
+            onPointerDown={handleChatResizePointerDown}
+            onKeyDown={handleChatResizeKeyDown}
+            onBlur={handleChatResizeBlur}
+          />
         ) : null}
         <FileWorkspace
           projectId={project.id}
@@ -11888,17 +12013,31 @@ export function computeProducedFiles(
   projectId?: string,
   projectRoot?: string | null,
 ): ProjectFile[] | undefined {
+  const beforeSet = beforeNames
+    ? beforeNames instanceof Set
+      ? beforeNames
+      : new Set(beforeNames)
+    : null;
   if (authoritativePaths !== undefined) {
     const byName = new Map<string, ProjectFile>();
+    // The daemon's authoritative list intentionally covers user-facing
+    // artifacts and render dependencies, not every file an agent can create
+    // (for example plugin manifests and Markdown). Preserve all files that are
+    // provably new from the turn baseline, then use authoritative paths to add
+    // modified existing artifacts without attributing untouched inputs.
+    if (beforeSet) {
+      for (const file of next) {
+        if (!beforeSet.has(file.name)) byName.set(file.name, file);
+      }
+    }
     for (const rawPath of authoritativePaths) {
       const file = findTouchedProjectFile(rawPath, next, projectId, projectRoot);
       if (file) byName.set(file.name, file);
     }
     return filterImplicitProducedFiles([...byName.values()]);
   }
-  if (!beforeNames) return undefined;
-  const set = beforeNames instanceof Set ? beforeNames : new Set(beforeNames);
-  return filterImplicitProducedFiles(next.filter((f) => !set.has(f.name)));
+  if (!beforeSet) return undefined;
+  return filterImplicitProducedFiles(next.filter((f) => !beforeSet.has(f.name)));
 }
 
 export function computeTraceObjectFiles(
@@ -12003,6 +12142,27 @@ function findTouchedProjectFile(
     candidates.some((candidate) => candidate.split('/').pop() === basename),
   );
   return basenameMatches.length === 1 ? basenameMatches[0]!.file : null;
+}
+
+// Return a project-relative tool path only when an absolute Write/Edit path
+// can be proven to live under the resolved project root. This runs before the
+// refreshed inventory is available, so aliases, relative paths, and paths with
+// only a matching `projects/<id>` suffix must wait for that later authoritative
+// match instead of creating a persistent placeholder tab.
+function provenProjectRelativeToolPath(
+  rawPath: string,
+  projectRoot?: string | null,
+): string | null {
+  const slashed = rawPath.replace(/\\/g, '/');
+  if (!isAbsoluteToolPath(slashed) || !projectRoot) return null;
+  const segments = lexicallyNormalizePathSegments(slashed);
+  if (!segments || segments.length === 0) return null;
+  const rootSegments = lexicallyNormalizePathSegments(projectRoot.replace(/\\/g, '/'));
+  if (!rootSegments || segments.length <= rootSegments.length) return null;
+  for (let index = 0; index < rootSegments.length; index += 1) {
+    if (segments[index] !== rootSegments[index]) return null;
+  }
+  return segments.slice(rootSegments.length).join('/') || null;
 }
 
 function relativePathFromManagedProjectAlias(
@@ -12239,6 +12399,7 @@ export function createBufferedTextUpdates({
 }) {
   let pendingContentDelta = '';
   let pendingTextEventDelta = '';
+  let pendingThinkingEventDelta = '';
   let flushFrame: number | null = null;
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
@@ -12265,27 +12426,36 @@ export function createBufferedTextUpdates({
       return;
     }
     cancelScheduledFlush();
-    if (!pendingContentDelta && !pendingTextEventDelta && !needsFlush) return;
+    if (
+      !pendingContentDelta
+      && !pendingTextEventDelta
+      && !pendingThinkingEventDelta
+      && !needsFlush
+    ) return;
     flushing = true;
     needsFlush = false;
     const contentDelta = pendingContentDelta;
     const textEventDelta = pendingTextEventDelta;
+    const thinkingEventDelta = pendingThinkingEventDelta;
     pendingContentDelta = '';
     pendingTextEventDelta = '';
+    pendingThinkingEventDelta = '';
     try {
       updateMessage((prev) => ({
         ...prev,
         content: prev.content + contentDelta,
-        events: textEventDelta
-          ? [...(prev.events ?? []), { kind: 'text', text: textEventDelta }]
-          : prev.events,
+        events: appendBufferedAgentDeltas(
+          prev.events ?? [],
+          textEventDelta,
+          thinkingEventDelta,
+        ),
       }));
       persistSoon();
       if (contentDelta) onContentDelta?.(contentDelta);
     } finally {
       flushing = false;
     }
-    if (pendingContentDelta || pendingTextEventDelta || needsFlush) {
+    if (pendingContentDelta || pendingTextEventDelta || pendingThinkingEventDelta || needsFlush) {
       needsFlush = false;
       scheduleFlush();
     }
@@ -12312,6 +12482,7 @@ export function createBufferedTextUpdates({
 
   const appendTextEvent = (delta: string) => {
     if (disposed) return;
+    if (pendingThinkingEventDelta) flush();
     pendingTextEventDelta += delta;
     needsFlush = true;
     scheduleFlush();
@@ -12323,8 +12494,18 @@ export function createBufferedTextUpdates({
       appendTextEvent(ev.text);
       return;
     }
+    if (ev.kind === 'thinking') {
+      if (pendingTextEventDelta) flush();
+      pendingThinkingEventDelta += ev.text;
+      needsFlush = true;
+      scheduleFlush();
+      return;
+    }
     flush();
-    updateMessage((prev) => ({ ...prev, events: [...(prev.events ?? []), ev] }));
+    updateMessage((prev) => ({
+      ...prev,
+      events: appendCoalescedAgentEvent(prev.events ?? [], ev),
+    }));
     persistSoon();
   };
 
@@ -12333,6 +12514,7 @@ export function createBufferedTextUpdates({
     cancelScheduledFlush();
     pendingContentDelta = '';
     pendingTextEventDelta = '';
+    pendingThinkingEventDelta = '';
     needsFlush = false;
     if (hasDocument) {
       document.removeEventListener('visibilitychange', onVisibilityChange);
@@ -12368,4 +12550,31 @@ export function createBufferedTextUpdates({
   const hasPendingText = () => pendingTextEventDelta.length > 0;
 
   return { appendContent, appendTextEvent, appendEvent, flush, cancel, hasPendingText };
+}
+
+function appendCoalescedAgentEvent(events: AgentEvent[], event: AgentEvent): AgentEvent[] {
+  const last = events[events.length - 1];
+  if (
+    (event.kind === 'text' || event.kind === 'thinking')
+    && last?.kind === event.kind
+  ) {
+    return [
+      ...events.slice(0, -1),
+      { ...last, text: last.text + event.text },
+    ];
+  }
+  return [...events, event];
+}
+
+function appendBufferedAgentDeltas(
+  events: AgentEvent[],
+  textDelta: string,
+  thinkingDelta: string,
+): AgentEvent[] {
+  let next = events;
+  if (textDelta) next = appendCoalescedAgentEvent(next, { kind: 'text', text: textDelta });
+  if (thinkingDelta) {
+    next = appendCoalescedAgentEvent(next, { kind: 'thinking', text: thinkingDelta });
+  }
+  return next;
 }

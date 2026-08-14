@@ -27,6 +27,7 @@ import {
   applyJsonInstall,
   removeJsonInstall,
 } from './mcp-agent-install.js';
+import { resolveMcpWorkspaceContext } from './mcp-workspace-context.js';
 
 const argv = process.argv.slice(2);
 
@@ -336,6 +337,8 @@ const BRAND_STRING_FLAGS = new Set([
 const BRAND_BOOLEAN_FLAGS = new Set([
   'help', 'h', 'json',
 ]);
+const AGENT_STRING_FLAGS = new Set(['daemon-url']);
+const AGENT_BOOLEAN_FLAGS = new Set(['help', 'h', 'json']);
 // Hoisted because `runAutomation` is reachable through the top-of-file
 // SUBCOMMAND_MAP dispatch, which runs during module evaluation —
 // any `const` declared further down would still be in TDZ when
@@ -370,6 +373,7 @@ const PLUGIN_LIST_BOOLEAN_FLAGS = new Set([
 ]);
 
 const SUBCOMMAND_MAP = {
+  agent: runAgent,
   artifacts: runArtifacts,
   media: runMedia,
   mcp: runMcp,
@@ -412,8 +416,61 @@ const SUBCOMMAND_MAP = {
   figma: runFigma,
 };
 
+function printAgentHelp() {
+  console.log(`Usage: od agent setup deepseek-harness [options]
+
+Install or repair Open Design's bundled connection component in the user's
+official DeepSeek Harness installation. The dsh CLI itself is not installed
+or upgraded by Open Design.
+
+Options:
+  --json                  Print a machine-readable result.
+  --daemon-url <url>      Override daemon URL.`);
+}
+
+async function runAgent(args) {
+  let flags;
+  try {
+    flags = parseFlags(args, { string: AGENT_STRING_FLAGS, boolean: AGENT_BOOLEAN_FLAGS });
+  } catch (error) {
+    console.error(error.message);
+    process.exit(2);
+  }
+  const positional = positionalArgs(args, AGENT_STRING_FLAGS);
+  if (flags.help || flags.h || positional[0] === 'help') {
+    printAgentHelp();
+    return;
+  }
+  if (positional[0] !== 'setup' || positional[1] !== 'deepseek-harness') {
+    printAgentHelp();
+    process.exit(2);
+  }
+  const base = await cliDaemonBaseUrl(flags);
+  let response;
+  try {
+    response = await fetch(`${base}/api/agents/deepseek-harness/companion/install`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+  } catch (error) {
+    surfaceFetchError(error, base);
+    process.exit(3);
+  }
+  if (!response.ok) return structuredHttpFailure(response, 'daemon-not-running');
+  const result = await response.json();
+  if (flags.json) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+  const verb = result.action === 'already-compatible' ? 'already compatible' : result.action;
+  console.log(`DeepSeek Harness connection component ${verb} (${result.packageVersion}).`);
+}
+
 const EXPORT_STRING_FLAGS = new Set([
   'daemon-url', 'project', 'format', 'out', 'output', 'image-format', 'title', 'file',
+  // Backwards-compatible no-ops. Older scripts may still pass these, but
+  // export authority is derived from the project id by the daemon.
   'workspace', 'workspace-member',
 ]);
 const EXPORT_BOOLEAN_FLAGS = new Set(['help', 'h', 'json', 'deck', 'page', 'no-deck']);
@@ -424,10 +481,9 @@ function printExportHelp() {
   console.log(`Usage:
   od export <file> --project <id> --format <fmt> [options]
 
-Programmatic export of an HTML/deck artifact to PDF, image, or PPTX. Runs
-entirely from the rendered design (no model/agent calls). Rasterization uses
-the desktop runtime's bundled Chromium, so a desktop/packaged runtime must be
-reachable; otherwise the command reports that the renderer is unavailable.
+Programmatic export of an HTML/deck artifact to standalone HTML, PDF, image,
+or PPTX. Runs without model/agent calls. Standalone HTML works in a headless
+daemon; visual formats require the desktop runtime's bundled Chromium.
 
 Formats:  ${EXPORT_FORMATS.join(', ')}
 
@@ -439,13 +495,12 @@ Options:
   --deck                   Treat the artifact as a multi-slide deck
   --page, --no-deck        Treat the artifact as a normal scrollable page
   --title <title>          Title used for metadata / default filename
-  --workspace <id>        Explicit Workspace id for a bound project
-  --workspace-member <id> Explicit Workspace member id for a bound project
   --json                   Print a machine-readable result envelope
   --daemon-url <url>       Override daemon URL
 
 Examples:
   od export index.html --project p1 --format pdf --out page.pdf
+  od export index.html --project p1 --format html --out standalone.html
   od export slide.html --project p1 --format image --image-format png --out slide.png
   od export deck.html --project p1 --format pptx --out deck.pptx`);
 }
@@ -486,8 +541,8 @@ async function runExport(args) {
   const token = process.env.OD_TOOL_TOKEN;
   const requestHeaders = token
     ? { authorization: `Bearer ${token}` }
-    : workspaceHeadersFromExplicitFlags(flags) ?? {};
-  // All three formats rasterize through the desktop screenshot renderer so the
+    : {};
+  // Visual formats rasterize through the desktop screenshot renderer so the
   // CLI matches the UI exactly. In particular `pdf` uses `/export/pdf-image`
   // (one raster page per deck slide / per viewport for a page) — NOT the generic
   // `/export` vector `printToPDF` path, which drops CJK glyphs in the packaged
@@ -538,7 +593,7 @@ async function runExport(args) {
     if (!out) {
       const ext = format === 'image'
         ? (flags['image-format'] === 'jpeg' ? 'jpg' : 'png')
-        : format === 'pptx' ? 'pptx' : 'pdf';
+        : format === 'pptx' ? 'pptx' : format === 'html' ? 'html' : 'pdf';
       out = `artifact.${ext}`;
     }
   }
@@ -696,6 +751,8 @@ function printRootHelp() {
 
   od tools design-systems read --path <manifest-declared-path>
       Read active design-system pull-layer files through daemon wrapper commands.
+  od tools design-systems resolve --intent <canonical-intent>
+      Resolve an active DS 3.0 intent to its component, variant, properties, and states.
 
   od mcp live-artifacts
       Start the MCP server exposing live-artifact and connector tools.
@@ -744,8 +801,8 @@ function printRootHelp() {
       into a zip for support tickets. Same output as Settings → About →
       Export diagnostics.
 
-  od export <file> --project <id> --format <pdf|image|pptx> [--out <path>]
-      Programmatically export an HTML/deck artifact to PDF, image, or PPTX
+  od export <file> --project <id> --format <html|pdf|image|pptx> [--out <path>]
+      Programmatically export an HTML/deck artifact to HTML, PDF, image, or PPTX
       (no model/agent calls). Mirrors the web Download menu; rasterization uses
       the desktop runtime's bundled Chromium.
 
@@ -788,6 +845,7 @@ async function runAmr(args) {
   if (!sub || sub === 'help' || args.includes('--help') || args.includes('-h')) {
     console.log(`Usage:
   od amr login [--json]
+  od amr logout [--json]
   od amr status [--refresh] [--json]
 
 Options:
@@ -800,6 +858,20 @@ Options:
   const flags = parseFlags(rest, { string: AMR_STRING_FLAGS, boolean: AMR_BOOLEAN_FLAGS });
   const base = await cliDaemonBaseUrl(flags);
   switch (sub) {
+    case 'logout': {
+      const logoutResp = await fetch(`${base}/api/integrations/vela/logout`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      if (!logoutResp.ok) return structuredHttpFailure(logoutResp);
+      const result = await logoutResp.json();
+      if (flags.json) {
+        return process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      }
+      console.log('AMR account\tsigned out');
+      return;
+    }
     case 'login': {
       const loginResp = await fetch(`${base}/api/integrations/vela/login`, {
         method: 'POST',
@@ -6602,15 +6674,48 @@ Common options:
     boolean: PROJECT_BOOLEAN_FLAGS,
   });
   const base = (await projectDaemonUrl(flags)).replace(/\/$/, '');
-  const workspaceHeaders =
-    workspaceHeadersFromExplicitFlags(flags) ?? {};
+  const explicitWorkspaceHeaders = workspaceHeadersFromExplicitFlags(flags);
+  const workspaceHeaders = explicitWorkspaceHeaders ?? {};
   switch (sub) {
     case 'list': {
-      const resp = await fetch(`${base}/api/projects`, {
-        headers: workspaceHeaders,
-      });
-      if (!resp.ok) return structuredHttpFailure(resp);
-      const data = await resp.json();
+      // After 0.18.0's workspace isolation, GET /api/projects is the NO-SCOPE
+      // catalog: it only returns projects that were never adopted into a
+      // workspace. Every project `od project import-folder` creates is
+      // immediately workspace-bound, so a headerless `od project list` shows
+      // an empty list while the UI keeps listing them (#6679). #6595 fixed
+      // this for the MCP bridge by resolving the signed-in workspace once
+      // and routing to GET /api/workspaces/:id/projects; mirror that here.
+      // BOTH the implicit signed-in path AND an explicit
+      // --workspace/--workspace-member pair route to the workspace-scoped
+      // catalog. The signed-out / non-vela / no-directory cases fall back to
+      // the original headerless catalog so `od project list` still returns
+      // unbound projects there. Passing --workspace to /api/projects does
+      // NOT scope it (#6679 repro), so the explicit path needs the same
+      // workspace-scoped endpoint as the implicit path.
+      let listResp: any = null;
+      let scopeHeaders: Record<string, string> = {};
+      if (explicitWorkspaceHeaders) {
+        const workspaceId = String(flags.workspace).trim();
+        scopeHeaders = explicitWorkspaceHeaders;
+        listResp = await fetch(
+          `${base}/api/workspaces/${encodeURIComponent(workspaceId)}/projects`,
+          { headers: scopeHeaders },
+        );
+      } else {
+        const ctx = await resolveMcpWorkspaceContext(base);
+        if (ctx) {
+          scopeHeaders = ctx.headers;
+          listResp = await fetch(
+            `${base}/api/workspaces/${encodeURIComponent(ctx.workspaceId)}/projects`,
+            { headers: scopeHeaders },
+          );
+        }
+      }
+      if (!listResp) {
+        listResp = await fetch(`${base}/api/projects`, { headers: workspaceHeaders });
+      }
+      if (!listResp.ok) return structuredHttpFailure(listResp);
+      const data = await listResp.json();
       if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
       const projects = data?.projects ?? [];
       if (projects.length === 0) {
