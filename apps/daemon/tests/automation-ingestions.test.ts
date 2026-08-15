@@ -137,11 +137,9 @@ describe('automation source ingestion', () => {
       bodyMarkdown: 'Primary #1122FF. Inter display.',
       tokenCompression: 'off',
     });
-    await listAutomationProposals(dataDir, { status: 'all' }).then((all) =>
-      all
-        .filter((p) => p.sourcePacketIds.includes(first.packet.id) && p.targetKind === 'design-system')
-        .forEach((p) => applyAutomationProposal(dataDir, p.id)),
-    );
+    const firstDesignProposals = (await listAutomationProposals(dataDir, { status: 'all' }))
+      .filter((p) => p.sourcePacketIds.includes(first.packet.id) && p.targetKind === 'design-system');
+    await Promise.all(firstDesignProposals.map((p) => applyAutomationProposal(dataDir, p.id)));
 
     const second = await ingestAutomationSource(dataDir, {
       templateId: 'extract-design-system',

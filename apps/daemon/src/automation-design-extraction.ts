@@ -50,7 +50,8 @@ const DEDUP_NORMALISERS: Record<DesignSignal['kind'], (value: string) => string>
 
 const HEX_RE = /#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/g;
 const FONT_FAMILY_RE = /font-family\s*:\s*([^;}\n]+)/gi;
-const FONT_VAR_RE = /--(?:font|font-display|font-body|font-mono)[-\w]*\s*[=:]\s*((?:(?!"|—)[^;}\n])+)/gi;
+const FONT_VAR_RE = /--(?:font|font-display|font-body|font-mono)[-\w]*\s*[=:]\s*([^;}\n]+)/gi;
+const FONT_ROLE_RE = /\b([A-Z][A-Za-z0-9]*(?:\s+[A-Z][A-Za-z0-9]*){0,3})\s+for\s+(?:display|body|mono|headings?|copy)\b/g;
 const FONT_WEIGHT_RE = /font-weight\s*:\s*(\d{3})/gi;
 const FONT_SIZE_RE = /font-size\s*:\s*(\d+(?:\.\d+)?)(px|rem|em)/gi;
 const LETTER_SPACING_RE = /letter-spacing\s*:\s*([-\d.]+(?:px|em|rem)?)/gi;
@@ -58,10 +59,11 @@ const SPACING_RE = /(?:--space|spacing|gap|padding|margin)[\w-]*\s*[:=]\s*(\d+(?
 const RADIUS_RE = /(?:border-radius|--radius)[-\w]*\s*[=:]\s*(\d+)(px|rem|em)?/gi;
 const SHADOW_RE = /box-shadow\s*:\s*([^;}\n]+)/gi;
 const TRANSITION_RE = /transition\s*:\s*([^;}\n]+)/gi;
+const MOTION_VAR_RE = /--(?:motion|transition)[-\w]*\s*[=:]\s*([^;}\n]+)/gi;
 const COMPONENT_HINTS = /\b(?:button|card|input|badge|chip|table|grid|nav|sidebar|modal|drawer|dropdown|tab|tabs|avatar|toolbar|menu|sheet)\b/gi;
 
 const MAX_WIDTH_RE = /(?:max-width|maxWidth|container)\s*[:=]\s*(\d+)(px|rem|em)?/gi;
-const COLUMNS_RE = /(?:columns|grid-template-columns)\s*[:=]\s*["']?(\d+)/gi;
+const GRID_TEMPLATE_COLUMNS_RE = /grid-template-columns\s*[:=]\s*([^;}\n]+)/gi;
 
 export function extractDesignSignals(body: string): DesignSignal[] {
   function spanFor(bodyStr: string, index: number): { start: number; end: number } | undefined {
@@ -71,12 +73,8 @@ export function extractDesignSignals(body: string): DesignSignal[] {
   }
 
   const signals: DesignSignal[] = [];
-  const seen = new Set<string>();
 
   function push(s: DesignSignal): void {
-    const dedupKey = `${s.kind}:${DEDUP_NORMALISERS[s.kind](s.value)}`;
-    if (seen.has(dedupKey)) return;
-    seen.add(dedupKey);
     signals.push(s);
   }
 
@@ -105,6 +103,26 @@ export function extractDesignSignals(body: string): DesignSignal[] {
       if (family.length < 3) continue;
       push(signal('font', family, 'high', ctx, spanFor(body, fontMatch.index)));
     }
+  }
+
+  let fontVarMatch: RegExpExecArray | null;
+  while ((fontVarMatch = FONT_VAR_RE.exec(body)) !== null) {
+    const raw = (fontVarMatch[1] ?? '').trim();
+    if (raw.length < 3) continue;
+    const families = raw
+      .split(',')
+      .map((family) => family.replace(/["']/g, '').trim())
+      .filter((family) => family.length >= 3);
+    for (const family of families) {
+      push(signal('font', family, 'high', fontVarMatch[0], spanFor(body, fontVarMatch.index)));
+    }
+  }
+
+  let fontRoleMatch: RegExpExecArray | null;
+  while ((fontRoleMatch = FONT_ROLE_RE.exec(body)) !== null) {
+    const family = (fontRoleMatch[1] ?? '').trim();
+    if (family.length < 3) continue;
+    push(signal('font', family, 'medium', fontRoleMatch[0], spanFor(body, fontRoleMatch.index)));
   }
 
   let weightMatch: RegExpExecArray | null;
@@ -200,6 +218,13 @@ export function extractDesignSignals(body: string): DesignSignal[] {
     push(signal('motion', `transition:${val}`, 'medium', 'transition declaration', spanFor(body, transMatch.index)));
   }
 
+  let motionVarMatch: RegExpExecArray | null;
+  while ((motionVarMatch = MOTION_VAR_RE.exec(body)) !== null) {
+    const val = (motionVarMatch[1] ?? '').trim().slice(0, 80);
+    if (!val) continue;
+    push(signal('motion', `${motionVarMatch[0].split(/[:=]/, 1)[0]!.trim()}:${val}`, 'high', motionVarMatch[0], spanFor(body, motionVarMatch.index)));
+  }
+
   const SPECIAL_DEPTH: ReadonlyArray<{ keyword: string; value: string }> = [
     { keyword: 'glassmorphism', value: 'glassmorphism' },
     { keyword: 'neumorphism', value: 'neumorphism' },
@@ -231,6 +256,20 @@ export function extractDesignSignals(body: string): DesignSignal[] {
     if (lowered.includes(kw.toLowerCase())) {
       push(signal('layout', kw, 'high', `keyword: ${kw}`, undefined));
     }
+  }
+
+  let maxWidthMatch: RegExpExecArray | null;
+  while ((maxWidthMatch = MAX_WIDTH_RE.exec(body)) !== null) {
+    const value = `${maxWidthMatch[1] ?? ''}${maxWidthMatch[2] ?? ''}`;
+    if (!value) continue;
+    push(signal('layout', `max-width:${value}`, 'high', maxWidthMatch[0], spanFor(body, maxWidthMatch.index)));
+  }
+
+  let columnsMatch: RegExpExecArray | null;
+  while ((columnsMatch = GRID_TEMPLATE_COLUMNS_RE.exec(body)) !== null) {
+    const value = (columnsMatch[1] ?? '').trim().slice(0, 100);
+    if (!value) continue;
+    push(signal('layout', `grid-template-columns:${value}`, 'high', columnsMatch[0], spanFor(body, columnsMatch.index)));
   }
 
   return signals;
